@@ -12,7 +12,7 @@ authors = [
 dependencies = [
     "cloud-sql-python-connector[asyncpg] >= 1.10.0",
     "numpy >= 1.24.4",
-    "langchain-postgres >= 0.0.15",
+    "langchain-postgres >= 0.0.16",
 ]
 
 classifiers = [
