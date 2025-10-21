@@ -23,7 +23,12 @@ from typing import TYPE_CHECKING, Any, Awaitable, Mapping, Optional, TypeVar, Un
 import aiohttp
 import google.auth  # type: ignore
 import google.auth.transport.requests  # type: ignore
-from google.cloud.sql.connector import Connector, IPTypes, RefreshStrategy
+from google.cloud.sql.connector import (
+    Connector,
+    IPTypes,
+    RefreshStrategy,
+    create_async_connector,
+)
 from langchain_postgres import Column, PGEngine
 from sqlalchemy import MetaData, Table, text
 from sqlalchemy.engine import URL
@@ -305,6 +310,104 @@ class PostgresEngine(PGEngine):
             engine_args=engine_args,
         )
         return await asyncio.wrap_future(future)
+
+    @classmethod
+    async def afrom_instance_lazy(
+        cls,
+        project_id: str,
+        region: str,
+        instance: str,
+        database: str,
+        user: Optional[str] = None,
+        password: Optional[str] = None,
+        ip_type: Union[str, IPTypes] = IPTypes.PUBLIC,
+        quota_project: Optional[str] = None,
+        iam_account_email: Optional[str] = None,
+        engine_args: Mapping = {},
+    ) -> PostgresEngine:
+        """Create PostgresEngine with lazy connector initialization.
+
+        This method creates a new connector inside the calling event loop to avoid
+        event loop mismatch issues. Recommended for applications that use multiple
+        async contexts (Jupyter notebooks, FastAPI + background workers, etc.).
+
+        Unlike afrom_instance(), this method does NOT use the class-level _connector,
+        so each engine instance gets its own connector bound to the current event loop.
+
+        Args:
+            project_id (str): GCP project ID.
+            region (str): Postgres instance region.
+            instance (str): Postgres instance name.
+            database (str): Database name.
+            user (Optional[str], optional): Postgres user name. Defaults to None.
+            password (Optional[str], optional): Postgres user password. Defaults to None.
+            ip_type (Union[str, IPTypes], optional): IP address type. Defaults to IPTypes.PUBLIC.
+            quota_project (Optional[str]): Project that provides quota for API calls.
+            iam_account_email (Optional[str], optional): IAM service account email. Defaults to None.
+            engine_args (Mapping): Additional arguments passed to create_async_engine.
+
+        Returns:
+            PostgresEngine: A newly created PostgresEngine instance.
+
+        Raises:
+            ValueError: If only one of user/password is specified.
+        """
+        # Validate auth arguments
+        if bool(user) ^ bool(password):
+            raise ValueError(
+                "Only one of 'user' or 'password' were specified. Either "
+                "both should be specified to use basic user/password "
+                "authentication or neither for IAM DB authentication."
+            )
+
+        # Determine authentication method
+        if user and password:
+            enable_iam_auth = False
+            db_user = user
+        else:
+            enable_iam_auth = True
+            if iam_account_email:
+                db_user = iam_account_email
+            else:
+                # get application default credentials
+                credentials, _ = google.auth.default(
+                    scopes=["https://www.googleapis.com/auth/userinfo.email"]
+                )
+                db_user = await _get_iam_principal_email(credentials)
+
+        # Lazy connector - will be created on first connection
+        _connector = None
+
+        async def getconn() -> asyncpg.Connection:
+            """Connection factory with lazy connector initialization."""
+            nonlocal _connector
+            # Initialize connector lazily in the running event loop
+            if _connector is None:
+                _connector = await create_async_connector(
+                    quota_project=quota_project,
+                    refresh_strategy="lazy",
+                )
+
+            conn = await _connector.connect_async(
+                f"{project_id}:{region}:{instance}",
+                "asyncpg",
+                user=db_user,
+                password=password,
+                db=database,
+                enable_iam_auth=enable_iam_auth,
+                ip_type=ip_type,
+            )
+            return conn
+
+        # Create async engine with lazy connector
+        engine = create_async_engine(
+            "postgresql+asyncpg://",
+            async_creator=getconn,
+            **engine_args,
+        )
+
+        # Return PostgresEngine with no loop/thread (will use current event loop)
+        return cls(PGEngine._PGEngine__create_key, engine, None, None)  # type: ignore
 
     @classmethod
     def from_connection_string(
