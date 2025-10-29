@@ -103,6 +103,7 @@ class PostgresEngine(PGEngine):
         thread: Optional[Thread] = None,
         quota_project: Optional[str] = None,
         iam_account_email: Optional[str] = None,
+        credentials: Optional[google.auth.credentials.Credentials] = None,
         engine_args: Mapping = {},
     ) -> PostgresEngine:
         """Create a PostgresEngine instance.
@@ -119,6 +120,8 @@ class PostgresEngine(PGEngine):
             thread (Optional[Thread]): Thread used to create the engine async.
             quota_project (Optional[str]): Project that provides quota for API calls.
             iam_account_email (Optional[str]): IAM service account email. Defaults to None.
+            credentials (Optional[google.auth.credentials.Credentials]): Custom credentials to use.
+                If not provided, uses Application Default Credentials (ADC).
             engine_args (Mapping): Additional arguments that are passed directly to
                 :func:`~sqlalchemy.ext.asyncio.mymodule.MyClass.create_async_engine`. This can be
                 used to specify additional parameters to the underlying pool during it's creation.
@@ -135,13 +138,26 @@ class PostgresEngine(PGEngine):
                 "both should be specified to use basic user/password "
                 "authentication or neither for IAM DB authentication."
             )
-        if cls._connector is None:
-            cls._connector = Connector(
+        
+        # If credentials are provided, create a new connector instance
+        # Otherwise use the class-level singleton for ADC
+        if credentials is not None:
+            connector = Connector(
                 loop=loop,
                 user_agent=USER_AGENT,
                 quota_project=quota_project,
+                credentials=credentials,
                 refresh_strategy=RefreshStrategy.LAZY,
             )
+        else:
+            if cls._connector is None:
+                cls._connector = Connector(
+                    loop=loop,
+                    user_agent=USER_AGENT,
+                    quota_project=quota_project,
+                    refresh_strategy=RefreshStrategy.LAZY,
+                )
+            connector = cls._connector
 
         # if user and password are given, use basic auth
         if user and password:
@@ -153,15 +169,16 @@ class PostgresEngine(PGEngine):
             if iam_account_email:
                 db_user = iam_account_email
             else:
-                # get application default credentials
-                credentials, _ = google.auth.default(
-                    scopes=["https://www.googleapis.com/auth/userinfo.email"]
-                )
+                # get application default credentials if not provided
+                if credentials is None:
+                    credentials, _ = google.auth.default(
+                        scopes=["https://www.googleapis.com/auth/userinfo.email"]
+                    )
                 db_user = await _get_iam_principal_email(credentials)
 
         # anonymous function to be used for SQLAlchemy 'creator' argument
         async def getconn() -> asyncpg.Connection:
-            conn = await cls._connector.connect_async(  # type: ignore
+            conn = await connector.connect_async(  # type: ignore
                 f"{project_id}:{region}:{instance}",
                 "asyncpg",
                 user=db_user,
@@ -191,6 +208,7 @@ class PostgresEngine(PGEngine):
         ip_type: Union[str, IPTypes] = IPTypes.PUBLIC,
         quota_project: Optional[str] = None,
         iam_account_email: Optional[str] = None,
+        credentials: Optional[google.auth.credentials.Credentials] = None,
         engine_args: Mapping = {},
     ) -> Future:
         # Running a loop in a background thread allows us to support
@@ -213,6 +231,7 @@ class PostgresEngine(PGEngine):
             thread=cls._default_thread,
             quota_project=quota_project,
             iam_account_email=iam_account_email,
+            credentials=credentials,
             engine_args=engine_args,
         )
         return asyncio.run_coroutine_threadsafe(coro, cls._default_loop)
@@ -229,6 +248,7 @@ class PostgresEngine(PGEngine):
         ip_type: Union[str, IPTypes] = IPTypes.PUBLIC,
         quota_project: Optional[str] = None,
         iam_account_email: Optional[str] = None,
+        credentials: Optional[google.auth.credentials.Credentials] = None,
         engine_args: Mapping = {},
     ) -> PostgresEngine:
         """Create a PostgresEngine from a Postgres instance.
@@ -243,6 +263,8 @@ class PostgresEngine(PGEngine):
             ip_type (Union[str, IPTypes], optional): IP address type. Defaults to IPTypes.PUBLIC.
             quota_project (Optional[str]): Project that provides quota for API calls.
             iam_account_email (Optional[str], optional): IAM service account email. Defaults to None.
+            credentials (Optional[google.auth.credentials.Credentials]): Custom credentials to use.
+                If not provided, uses Application Default Credentials (ADC).
             engine_args (Mapping): Additional arguments that are passed directly to
                 :func:`~sqlalchemy.ext.asyncio.mymodule.MyClass.create_async_engine`. This can be
                 used to specify additional parameters to the underlying pool during it's creation.
@@ -260,6 +282,7 @@ class PostgresEngine(PGEngine):
             ip_type,
             quota_project=quota_project,
             iam_account_email=iam_account_email,
+            credentials=credentials,
             engine_args=engine_args,
         )
         return future.result()
@@ -276,6 +299,7 @@ class PostgresEngine(PGEngine):
         ip_type: Union[str, IPTypes] = IPTypes.PUBLIC,
         quota_project: Optional[str] = None,
         iam_account_email: Optional[str] = None,
+        credentials: Optional[google.auth.credentials.Credentials] = None,
         engine_args: Mapping = {},
     ) -> PostgresEngine:
         """Create a PostgresEngine from a Postgres instance.
@@ -290,6 +314,8 @@ class PostgresEngine(PGEngine):
             ip_type (Union[str, IPTypes], optional): IP address type. Defaults to IPTypes.PUBLIC.
             quota_project (Optional[str]): Project that provides quota for API calls.
             iam_account_email (Optional[str], optional): IAM service account email. Defaults to None.
+            credentials (Optional[google.auth.credentials.Credentials]): Custom credentials to use.
+                If not provided, uses Application Default Credentials (ADC).
             engine_args (Mapping): Additional arguments that are passed directly to
                 :func:`~sqlalchemy.ext.asyncio.mymodule.MyClass.create_async_engine`. This can be
                 used to specify additional parameters to the underlying pool during it's creation.
@@ -307,6 +333,7 @@ class PostgresEngine(PGEngine):
             ip_type,
             quota_project=quota_project,
             iam_account_email=iam_account_email,
+            credentials=credentials,
             engine_args=engine_args,
         )
         return await asyncio.wrap_future(future)
@@ -323,6 +350,7 @@ class PostgresEngine(PGEngine):
         ip_type: Union[str, IPTypes] = IPTypes.PUBLIC,
         quota_project: Optional[str] = None,
         iam_account_email: Optional[str] = None,
+        credentials: Optional[google.auth.credentials.Credentials] = None,
         engine_args: Mapping = {},
     ) -> PostgresEngine:
         """Create PostgresEngine with lazy connector initialization.
@@ -344,6 +372,8 @@ class PostgresEngine(PGEngine):
             ip_type (Union[str, IPTypes], optional): IP address type. Defaults to IPTypes.PUBLIC.
             quota_project (Optional[str]): Project that provides quota for API calls.
             iam_account_email (Optional[str], optional): IAM service account email. Defaults to None.
+            credentials (Optional[google.auth.credentials.Credentials]): Custom credentials to use.
+                If not provided, uses Application Default Credentials (ADC).
             engine_args (Mapping): Additional arguments passed to create_async_engine.
 
         Returns:
@@ -369,10 +399,11 @@ class PostgresEngine(PGEngine):
             if iam_account_email:
                 db_user = iam_account_email
             else:
-                # get application default credentials
-                credentials, _ = google.auth.default(
-                    scopes=["https://www.googleapis.com/auth/userinfo.email"]
-                )
+                # get application default credentials if not provided
+                if credentials is None:
+                    credentials, _ = google.auth.default(
+                        scopes=["https://www.googleapis.com/auth/userinfo.email"]
+                    )
                 db_user = await _get_iam_principal_email(credentials)
 
         # Lazy connector - will be created on first connection
@@ -385,6 +416,7 @@ class PostgresEngine(PGEngine):
             if _connector is None:
                 _connector = await create_async_connector(
                     quota_project=quota_project,
+                    credentials=credentials,
                     refresh_strategy="lazy",
                 )
 
