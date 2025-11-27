@@ -1,11 +1,12 @@
 [project]
-name = "langchain-google-cloud-sql-pg"
+name = "langchain-google-cloud-sql-pg-jetty"
 dynamic = ["version"]
-description = "LangChain integrations for Google Cloud SQL for PostgreSQL"
+description = "LangChain integrations for Google Cloud SQL for PostgreSQL (Jetty Health fork)"
 readme = "README.rst"
 license = {file = "LICENSE"}
 requires-python = ">=3.9"
 authors = [
+    {name = "Jetty Health", email = "alex@myjettyhealth.com"},
     {name = "Google LLC", email = "googleapis-packages@google.com"}
 ]
 
@@ -30,10 +31,11 @@ classifiers = [
 version = {attr = "langchain_google_cloud_sql_pg.version.__version__"}
 
 [project.urls]
-Homepage = "https://github.com/googleapis/langchain-google-cloud-sql-pg-python"
-Repository = "https://github.com/googleapis/langchain-google-cloud-sql-pg-python.git"
-"Bug Tracker" = "https://github.com/googleapis/langchain-google-cloud-sql-pg-python/issues"
-Changelog = "https://github.com/googleapis/langchain-google-cloud-sql-pg-python/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/JettyHealth/langchain-google-cloud-sql-pg-python"
+Repository = "https://github.com/JettyHealth/langchain-google-cloud-sql-pg-python.git"
+"Bug Tracker" = "https://github.com/JettyHealth/langchain-google-cloud-sql-pg-python/issues"
+Changelog = "https://github.com/JettyHealth/langchain-google-cloud-sql-pg-python/blob/main/CHANGELOG.md"
+"Upstream" = "https://github.com/googleapis/langchain-google-cloud-sql-pg-python"
 
 [project.optional-dependencies]
 langgraph = [
@@ -62,7 +64,7 @@ target-version = ['py39']
 profile = "black"
 
 [tool.mypy]
-python_version = 3.9
+python_version = "3.12"
 warn_unused_configs = true
 disallow_incomplete_defs = true
 
