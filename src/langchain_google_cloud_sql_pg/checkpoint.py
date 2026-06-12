@@ -246,3 +246,23 @@ class PostgresSaver(BaseCheckpointSaver[str]):
         self._engine._run_as_sync(
             self.__checkpoint.aput_writes(config, writes, task_id, task_path)
         )
+
+    async def adelete_thread(self, thread_id: str) -> None:
+        """Asynchronously delete all checkpoints and writes for a thread.
+        Args:
+            thread_id (str): The thread whose checkpoints and pending writes
+                should be removed.
+        Returns:
+            None
+        """
+        await self._engine._run_as_async(self.__checkpoint.adelete_thread(thread_id))
+
+    def delete_thread(self, thread_id: str) -> None:
+        """Delete all checkpoints and writes for a thread.
+        Args:
+            thread_id (str): The thread whose checkpoints and pending writes
+                should be removed.
+        Returns:
+            None
+        """
+        self._engine._run_as_sync(self.__checkpoint.adelete_thread(thread_id))

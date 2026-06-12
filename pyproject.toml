@@ -39,7 +39,10 @@ Changelog = "https://github.com/JettyHealth/langchain-google-cloud-sql-pg-python
 
 [project.optional-dependencies]
 langgraph = [
-    "langgraph-checkpoint>=2.0.9, <3.0.0"
+    # Upper bound verified against langgraph-checkpoint 4.1.x: checkpoint
+    # metadata no longer uses the untyped JsonPlusSerializer.dumps/loads
+    # helpers that 4.x removed (plain JSON instead).
+    "langgraph-checkpoint>=2.0.9, <4.2"
 ]
 test = [
     "black[jupyter]==25.9.0",

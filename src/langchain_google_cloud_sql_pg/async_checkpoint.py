@@ -26,7 +26,6 @@ from langgraph.checkpoint.base import (
     get_checkpoint_id,
 )
 from langgraph.checkpoint.serde.base import SerializerProtocol
-from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.serde.types import TASKS
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -61,8 +60,6 @@ class AsyncPostgresSaver(BaseCheckpointSaver[str]):
     """Checkpoint stored in PgSQL"""
 
     __create_key = object()
-
-    jsonplus_serde = JsonPlusSerializer()
 
     def __init__(
         self,
@@ -148,6 +145,24 @@ class AsyncPostgresSaver(BaseCheckpointSaver[str]):
                 "\n);"
             )
         return cls(cls.__create_key, engine._pool, table_name, schema_name, serde)
+
+    def _dump_metadata(self, metadata: CheckpointMetadata) -> bytes:
+        """Serialize checkpoint metadata as plain JSON bytes.
+
+        The metadata column is queried as JSON (``convert_from(metadata,
+        'UTF8')::jsonb`` in :meth:`_search_where`), so it must always hold
+        valid JSON text — which is also how langgraph's first-party Postgres
+        saver stores it. Plain ``json`` is used instead of
+        ``JsonPlusSerializer`` because the untyped ``dumps``/``loads`` helpers
+        were removed in langgraph-checkpoint 4.x; ``default=str`` keeps exotic
+        metadata values from failing a checkpoint write (metadata is for
+        filtering and observability, not state restoration).
+        """
+        return json.dumps(metadata, ensure_ascii=False, default=str).encode("utf-8")
+
+    def _load_metadata(self, blob: Any) -> CheckpointMetadata:
+        """Deserialize checkpoint metadata written by :meth:`_dump_metadata`."""
+        return json.loads(bytes(blob).decode("utf-8"))
 
     def _dump_writes(
         self,
@@ -276,7 +291,7 @@ class AsyncPostgresSaver(BaseCheckpointSaver[str]):
 
         async with self.pool.connect() as conn:
             type_, serialized_checkpoint = self.serde.dumps_typed(checkpoint)
-            serialized_metadata = self.jsonplus_serde.dumps(metadata)
+            serialized_metadata = self._dump_metadata(metadata)
             await conn.execute(
                 text(query),
                 {
@@ -409,7 +424,7 @@ class AsyncPostgresSaver(BaseCheckpointSaver[str]):
                         (value["type"], value["checkpoint"])
                     ),
                     metadata=(
-                        self.jsonplus_serde.loads(value["metadata"])  # type: ignore
+                        self._load_metadata(value["metadata"])
                         if value["metadata"] is not None
                         else {}
                     ),
@@ -494,7 +509,7 @@ class AsyncPostgresSaver(BaseCheckpointSaver[str]):
                 },
                 checkpoint=self.serde.loads_typed((value["type"], value["checkpoint"])),
                 metadata=(
-                    self.jsonplus_serde.loads(value["metadata"])  # type: ignore
+                    self._load_metadata(value["metadata"])
                     if value["metadata"] is not None
                     else {}
                 ),
@@ -511,6 +526,39 @@ class AsyncPostgresSaver(BaseCheckpointSaver[str]):
                 ),
                 pending_writes=self._load_writes(value["pending_writes"]),
             )
+
+    async def adelete_thread(self, thread_id: str) -> None:
+        """Asynchronously delete all checkpoints and writes for a thread.
+
+        Args:
+            thread_id (str): The thread whose checkpoints and pending writes
+                should be removed.
+
+        Returns:
+            None
+        """
+        delete_writes = f"""DELETE FROM "{self.schema_name}"."{self.table_name_writes}"
+                    WHERE thread_id = :thread_id"""
+        delete_checkpoints = f"""DELETE FROM "{self.schema_name}"."{self.table_name}"
+                    WHERE thread_id = :thread_id"""
+        async with self.pool.connect() as conn:
+            await conn.execute(text(delete_writes), {"thread_id": thread_id})
+            await conn.execute(text(delete_checkpoints), {"thread_id": thread_id})
+            await conn.commit()
+
+    def delete_thread(self, thread_id: str) -> None:
+        """Delete all checkpoints and writes for a thread.
+
+        Args:
+            thread_id (str): The thread whose checkpoints and pending writes
+                should be removed.
+
+        Returns:
+            None
+        """
+        raise NotImplementedError(
+            "Sync methods are not implemented for AsyncPostgresSaver. Use PostgresSaver interface instead."
+        )
 
     def put(
         self,
